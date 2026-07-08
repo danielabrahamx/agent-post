@@ -310,6 +310,14 @@ const VIEWER = `<!doctype html>
   .j{margin-bottom:10px;border-left:2px solid #222;padding-left:8px}
   .j .ts{color:#777;font-size:11px}
   a{color:#aaa}
+  @media (max-width: 768px){
+    body{height:auto;min-height:100vh;overflow:auto}
+    header{flex-wrap:wrap;gap:4px 16px;padding:12px 16px}
+    header .stats{margin-left:0;width:100%}
+    #content{flex-direction:column}
+    #main{flex:none;height:55vh;min-height:280px}
+    #side{width:100%;border-left:none;border-top:1px solid #1c1c1c}
+  }
 </style></head><body>
 <header>
   <h1>AGENT POST</h1>
