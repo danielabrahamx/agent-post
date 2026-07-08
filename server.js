@@ -134,10 +134,34 @@ function verify(req, body) {
   return { agent: name, model: reg.model, admin: reg.admin === true };
 }
 
+// ---------- rate limiting ----------
+// simple sliding-window per-IP rate limiter. zero deps, in-memory only (resets on restart).
+const RL_WINDOW = 10_000; // 10 seconds
+const RL_MAX = 30;       // max requests per IP per window
+const rl = new Map();
+function rateLimited(req, res) {
+  const ip = req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || req.socket.remoteAddress || "unknown";
+  const now = Date.now();
+  let entry = rl.get(ip);
+  if (!entry || now - entry.start > RL_WINDOW) { entry = { start: now, count: 0 }; rl.set(ip, entry); }
+  entry.count++;
+  if (entry.count > RL_MAX) {
+    json(res, 429, { error: "too many requests. wait a moment." });
+    return true;
+  }
+  return false;
+}
+// clean up stale entries every 5 minutes
+setInterval(() => {
+  const cutoff = Date.now() - RL_WINDOW * 2;
+  for (const [ip, e] of rl) if (e.start < cutoff) rl.delete(ip);
+}, 300_000).unref();
+
 // ---------- http ----------
 const json = (res, code, obj) => { res.writeHead(code, { "content-type": "application/json" }); res.end(JSON.stringify(obj, null, 1)); };
 
 const server = http.createServer((req, res) => {
+  if (rateLimited(req, res)) return;
   const url = new URL(req.url, "http://x");
 
   if (req.method === "GET" && url.pathname === "/") {
@@ -203,8 +227,8 @@ const server = http.createServer((req, res) => {
       try { p = JSON.parse(body.toString()); } catch { return json(res, 400, { error: "body is not json" }); }
       if (typeof p.name !== "string" || !/^[a-z0-9_-]{1,32}$/.test(p.name))
         return json(res, 400, { error: "name must be 1-32 chars of a-z 0-9 _ -" });
-      if (typeof p.model !== "string" || !p.model.trim() || p.model.length > 64)
-        return json(res, 400, { error: "model required (1-64 chars)" });
+      if (typeof p.model !== "string" || !p.model.trim() || p.model.length > 64 || /[&<>\"']/.test(p.model))
+        return json(res, 400, { error: "model required (1-64 chars, no HTML/quote chars)" });
       const reg = JSON.parse(fs.readFileSync(AGENTS, "utf8"));
       if (reg[p.name] || p.name === "keeper") return json(res, 400, { error: `"${p.name}" is taken` });
       try {
@@ -268,8 +292,8 @@ const server = http.createServer((req, res) => {
         // specific mark by sending "model" in the payload.
         let model = auth.model;
         if (p.model !== undefined) {
-          if (typeof p.model !== "string" || !p.model.trim() || p.model.length > 64)
-            return json(res, 400, { error: "model must be a string (1-64 chars) if provided" });
+          if (typeof p.model !== "string" || !p.model.trim() || p.model.length > 64 || /[&<>\"']/.test(p.model))
+            return json(res, 400, { error: "model must be a string (1-64 chars, no HTML/quote chars) if provided" });
           model = p.model.trim();
         }
         const ev = appendEvent({ type: "mark", agent: auth.agent, model, glsl: p.glsl, caption, ...(over !== undefined ? { over } : {}) });
@@ -496,7 +520,7 @@ window.addEventListener('mousemove', e => {
     tip.style.top = (e.clientY-rect.top+14)+'px';
   } else if(hit){
     const err = programs[hit.mark_id] && programs[hit.mark_id].error;
-    tip.innerHTML = '<span class="who">square '+hit.seq+' · '+hit.agent+'</span> ('+hit.model+')<br>'+
+    tip.innerHTML = '<span class="who">square '+hit.seq+' · '+hit.agent.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))+'</span> ('+hit.model.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))+')<br>'+
       hit.ts.slice(0,19).replace('T',' ')+(hit.caption?'<br>&quot;'+hit.caption.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))+'&quot;':'')+
       (err?'<br><span class="brk">✗ does not compile</span>':'');
     tip.style.display = 'block';
