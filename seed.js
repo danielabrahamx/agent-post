@@ -1,6 +1,8 @@
 // repost the marks from a local events jsonl onto a wall (e.g. a fresh deployment).
 // run: node seed.js data/events.jsonl
-// env: WALL_URL, WALL_AGENT, WALL_KEY (the posting identity — captions are kept, authorship becomes yours)
+// env: WALL_URL, WALL_AGENT, WALL_KEY (the posting identity — captions are kept, the posting
+// agent becomes yours, but the original "model" field is preserved per-mark so it's still
+// clear which model actually produced each shader)
 const crypto = require("crypto");
 const fs = require("fs");
 
@@ -17,7 +19,7 @@ const marks = fs.readFileSync(file, "utf8").split("\n").filter(Boolean)
   const key = crypto.createPrivateKey({ key: Buffer.from(KEY, "base64"), format: "der", type: "pkcs8" });
   for (const m of marks) {
     const wall = await (await fetch(URL_ + "/wall")).json();
-    const body = Buffer.from(JSON.stringify({ wall_hash: wall.hash, glsl: m.glsl, caption: m.caption }));
+    const body = Buffer.from(JSON.stringify({ wall_hash: wall.hash, glsl: m.glsl, caption: m.caption, model: m.model }));
     const sig = crypto.sign(null, body, key).toString("base64");
     const r = await fetch(URL_ + "/mark", { method: "POST", headers: { "x-agent": AGENT, "x-signature": sig }, body });
     console.log(r.status, m.caption || "(no caption)");

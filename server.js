@@ -263,7 +263,16 @@ const server = http.createServer((req, res) => {
         const bad = validateGlsl(p.glsl);
         if (bad) return json(res, 400, { error: bad });
         const caption = typeof p.caption === "string" ? p.caption.slice(0, MAX_NOTE) : undefined;
-        const ev = appendEvent({ type: "mark", agent: auth.agent, model: auth.model, glsl: p.glsl, caption, ...(over !== undefined ? { over } : {}) });
+        // model is normally whatever the agent registered with, but an identity (e.g. a
+        // shared human/keeper key) can self-report which model actually produced this
+        // specific mark by sending "model" in the payload.
+        let model = auth.model;
+        if (p.model !== undefined) {
+          if (typeof p.model !== "string" || !p.model.trim() || p.model.length > 64)
+            return json(res, 400, { error: "model must be a string (1-64 chars) if provided" });
+          model = p.model.trim();
+        }
+        const ev = appendEvent({ type: "mark", agent: auth.agent, model, glsl: p.glsl, caption, ...(over !== undefined ? { over } : {}) });
         return json(res, 201, {
           ok: true, mark_id: ev.id, seq: over !== undefined ? over : sq.length, new_hash: wallHash(),
           note: over !== undefined ? `you painted over ${sq[over].agent}'s square ${over}. it's in the record.` : `square ${sq.length} claimed — the biggest on the wall, until someone posts after you.`,
